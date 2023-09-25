@@ -11,6 +11,12 @@
 
 public delegate void ProgressionCallback (double fraction);
 
+// Assumes first page has index 0
+public enum FlipEverySecond {
+    Even = 1,
+    Odd = 0,
+}
+
 public class Book : Object
 {
     private List<Page> pages;
@@ -99,6 +105,26 @@ public class Book : Object
         changed ();
     }
 
+    public void flip_every_second (FlipEverySecond flip)
+    {
+        var new_pages = new List<Page> ();
+        for (var i = 0; i < n_pages; i++)
+        {
+            var page = pages.nth_data (i);
+            if (i % 2 == (int)flip) {
+                page.rotate_left();
+                page.rotate_left();
+                new_pages.append (page);
+            } else {
+                new_pages.append (page);
+            }
+        }
+        pages = (owned) new_pages;
+
+        reordered ();
+        changed ();
+    }
+
     public void combine_sides_reverse ()
     {
         var new_pages = new List<Page> ();
@@ -136,10 +162,14 @@ public class Book : Object
         return pages.index (page);
     }
 
-    public async void save_async (string mime_type, int quality, File file, ProgressionCallback? progress_cb, Cancellable? cancellable = null) throws Error
+    public async void save_async (string mime_type, int quality, File file,
+        bool postproc_enabled, string postproc_script, string postproc_arguments, bool postproc_keep_original,
+        ProgressionCallback? progress_cb, Cancellable? cancellable = null) throws Error
     {
         var book_saver = new BookSaver ();
-        yield book_saver.save_async (this, mime_type, quality, file, progress_cb, cancellable);
+        yield book_saver.save_async (this, mime_type, quality, file,
+            postproc_enabled, postproc_script, postproc_arguments, postproc_keep_original,
+            progress_cb, cancellable);
     }
 }
 
@@ -155,12 +185,15 @@ private class BookSaver
     private AsyncQueue<WriteTask> write_queue;
     private ThreadPool<EncodeTask> encoder;
     private SourceFunc save_async_callback;
+    private Postprocessor postprocessor = new Postprocessor();
 
     /* save_async get called in the main thread to start saving. It
      * distributes all encode tasks to other threads then yield so
      * the ui can continue operating. The method then return once saving
      * is completed, cancelled, or failed */
-    public async void save_async (Book book, string mime_type, int quality, File file, ProgressionCallback? progression_callback, Cancellable? cancellable) throws Error
+    public async void save_async (Book book, string mime_type, int quality, File file,
+        bool postproc_enabled, string postproc_script, string postproc_arguments, bool postproc_keep_original,
+        ProgressionCallback? progression_callback, Cancellable? cancellable) throws Error
     {
         var timer = new Timer ();
 
@@ -239,6 +272,23 @@ private class BookSaver
 
         timer.stop ();
         debug ("Save time: %f seconds", timer.elapsed (null));
+
+        if ( postproc_enabled ) {
+        /* Perform post-processing */
+            timer = new Timer ();
+            var return_code = postprocessor.process(postproc_script,
+                                                    mime_type,              // MIME Type
+                                                    postproc_keep_original, // Keep Original
+                                                    file.get_path(),        // Filename
+                                                    postproc_arguments      // Arguments
+                                                    );
+            if ( return_code != 0 ) {
+                warning ("Postprocessing script execution failed. ");
+            }
+            timer.stop ();
+            debug ("Postprocessing time: %f seconds", timer.elapsed (null));
+        }
+
     }
 
     /* Those methods are run in the encoder threads pool. It process
