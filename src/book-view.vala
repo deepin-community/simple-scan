@@ -189,14 +189,7 @@ public class BookView : Gtk.Box
 
     private void add_cb (Book book, Page page)
     {
-        Gdk.RGBA page_ruler_color;
-        if (!get_style_context ().lookup_color ("theme_fg_color", out page_ruler_color))
-        {
-            warning ("Couldn't get theme_fg_color from GTK theme, needed to draw the page view ruler");
-            /* Use a bright color so that theme makers notice it. */
-            page_ruler_color.parse ("#00ff00");
-        }
-        var page_view = new PageView (page, page_ruler_color);
+        var page_view = new PageView (page);
         page_view.changed.connect (page_view_changed_cb);
         page_view.size_changed.connect (page_view_size_changed_cb);
         page_data.insert (page, page_view);
@@ -211,6 +204,7 @@ public class BookView : Gtk.Box
             selected_page_view.selected = true;
 
         selected_page_view = page;
+        redraw();
         if (selected_page_view == null)
             return;
 
@@ -450,6 +444,10 @@ public class BookView : Gtk.Box
         for (var i = 0; i < book.n_pages; i++)
             pages.append (get_nth_page (i));
 
+        var ruler_color = get_style_context ().get_color (get_state_flags ());
+        Gdk.RGBA ruler_color_selected = {};
+        ruler_color_selected.parse("#3584e4");  /* Gnome Blue 3 */
+
         /* Render each page */
         foreach (var page in pages)
         {
@@ -462,7 +460,7 @@ public class BookView : Gtk.Box
 
             context.save ();
             context.translate (-x_offset, 0);
-            page.render (context);
+            page.render (context, page == selected_page_view ? ruler_color_selected : ruler_color);
             context.restore ();
 
             if (page.selected)
